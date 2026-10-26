@@ -3,9 +3,12 @@
   import Toolbar from '$lib/components/Toolbar.svelte';
   import Editor from '$lib/components/Editor.svelte';
   import Canvas from '$lib/components/Canvas.svelte';
+  import DbmlCanvas from '$lib/components/DbmlCanvas.svelte';
   import DbmlInspector from '$lib/components/DbmlInspector.svelte';
   import ExportModal from '$lib/components/ExportModal.svelte';
   import TemplateModal from '$lib/components/TemplateModal.svelte';
+  import AiSettingsModal from '$lib/components/AiSettingsModal.svelte';
+  import AiAgentPanel from '$lib/components/AiAgentPanel.svelte';
 
   import { renderMermaid } from '$lib/engines/mermaid';
   import { renderDbml } from '$lib/engines/dbml';
@@ -15,7 +18,7 @@
 
   // State
   let diagramType: DiagramType = $state('mermaid');
-  let viewMode: 'diagram' | 'inspector' = $state('diagram');
+  let viewMode: 'interactive' | 'mermaid-er' | 'inspector' = $state('interactive');
   let theme: 'dark' | 'light' = $state('dark');
   let editorOpen = $state(true);
   let editorWidth = $state(480);
@@ -36,7 +39,29 @@
   // Modals
   let isExportModalOpen = $state(false);
   let isTemplateModalOpen = $state(false);
+  let aiPanelOpen = $state(false);
+  let aiPanelWidth = $state(360);
+  let isDraggingAi = $state(false);
+  let isAiSettingsOpen = $state(false);
 
+  interface AiAgentHandle {
+    triggerFix?: () => void;
+    refreshSettings?: () => void;
+  }
+  let aiAgentRef: AiAgentHandle | null = $state(null);
+  let dbmlSvgGetter: (() => string) | null = null;
+  let exportSvgContent = $state('');
+
+  function openExport(customSvg?: string) {
+    if (customSvg) {
+      exportSvgContent = customSvg;
+    } else if (diagramType === 'dbml' && viewMode === 'interactive' && dbmlSvgGetter) {
+      exportSvgContent = dbmlSvgGetter();
+    } else {
+      exportSvgContent = svgContent;
+    }
+    isExportModalOpen = true;
+  }
   // Debounce handle
   let renderDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   let fileInputEl: HTMLInputElement | null = null;
@@ -93,7 +118,7 @@
   function handleTypeChange(nextType: DiagramType) {
     if (nextType === diagramType) return;
     diagramType = nextType;
-    viewMode = 'diagram';
+    viewMode = 'interactive';
 
     // Switch default template if current code matches standard template
     if (nextType === 'dbml') {
@@ -120,7 +145,7 @@
 
   function handleSelectTemplate(template: DiagramTemplate) {
     diagramType = template.type;
-    viewMode = 'diagram';
+    viewMode = 'interactive';
     currentFileName = template.type === 'dbml' ? 'schema.dbml' : 'diagram.mmd';
     code = template.code;
     queueRender(50);
@@ -197,6 +222,26 @@
     window.removeEventListener('mouseup', stopDragging);
   }
 
+  // Split-pane resizing for AI Agent panel
+  function startDraggingAi(e: MouseEvent) {
+    e.preventDefault();
+    isDraggingAi = true;
+    window.addEventListener('mousemove', onDraggingAi);
+    window.addEventListener('mouseup', stopDraggingAi);
+  }
+
+  function onDraggingAi(e: MouseEvent) {
+    if (!isDraggingAi) return;
+    const newWidth = Math.max(280, Math.min(window.innerWidth - e.clientX, window.innerWidth * 0.65));
+    aiPanelWidth = newWidth;
+  }
+
+  function stopDraggingAi() {
+    isDraggingAi = false;
+    window.removeEventListener('mousemove', onDraggingAi);
+    window.removeEventListener('mouseup', stopDraggingAi);
+  }
+
   // Keyboard shortcuts
   function handleKeyDown(e: KeyboardEvent) {
     if ((e.ctrlKey || e.metaKey) && e.key === 's') {
@@ -208,6 +253,9 @@
     } else if ((e.ctrlKey || e.metaKey) && e.key === 'e') {
       e.preventDefault();
       isExportModalOpen = true;
+    } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      aiPanelOpen = !aiPanelOpen;
     }
   }
 
@@ -232,6 +280,7 @@
     {viewMode}
     {theme}
     {editorOpen}
+    {aiPanelOpen}
     hasErrors={Boolean(errorMessage)}
     {isRendering}
     onChangeType={handleTypeChange}
@@ -242,9 +291,9 @@
     onOpen={handleOpen}
     onSave={handleSave}
     onOpenTemplates={() => (isTemplateModalOpen = true)}
-    onOpenExport={() => (isExportModalOpen = true)}
+    onOpenExport={() => openExport()}
+    onOpenAi={() => (aiPanelOpen = !aiPanelOpen)}
   />
-
   <!-- Main Content Split Workspace -->
   <main class="workspace-body">
     {#if editorOpen}
@@ -297,7 +346,17 @@
 
     <!-- Right Panel: Visual Viewport or DBML Inspector -->
     <section class="viewer-pane" aria-label="Diagram Preview Viewport">
-      {#if diagramType === 'dbml' && viewMode === 'inspector'}
+      {#if diagramType === 'dbml' && viewMode === 'interactive'}
+        <DbmlCanvas
+          schema={dbmlSchema}
+          {theme}
+          onGetSvg={(fn) => {
+            dbmlSvgGetter = fn;
+          }}
+          onExportSvg={(s) => openExport(s)}
+          onExportPng={(s) => openExport(s)}
+        />
+      {:else if diagramType === 'dbml' && viewMode === 'inspector'}
         <DbmlInspector
           schema={dbmlSchema}
           {theme}
@@ -310,17 +369,56 @@
           {errorLine}
           {theme}
           {isRendering}
-          onExportSvg={() => (isExportModalOpen = true)}
-          onExportPng={() => (isExportModalOpen = true)}
+          onExportSvg={() => openExport()}
+          onExportPng={() => openExport()}
+          onFixWithAi={() => {
+            aiPanelOpen = true;
+            setTimeout(() => {
+              aiAgentRef?.triggerFix?.();
+            }, 60);
+          }}
         />
       {/if}
     </section>
+
+    <!-- Right Side: AI Agent Chat Panel -->
+    {#if aiPanelOpen}
+      <!-- svelte-ignore a11y_no_noninteractive_element_interactions a11y_no_noninteractive_tabindex -->
+      <div
+        class="splitter-bar"
+        class:dragging={isDraggingAi}
+        onmousedown={startDraggingAi}
+        role="separator"
+        tabindex="-1"
+        aria-orientation="vertical"
+        aria-label="Resize AI Agent Panel"
+      >
+        <div class="splitter-line"></div>
+      </div>
+
+      <aside class="ai-agent-pane" style="width: {aiPanelWidth}px;" aria-label="AI Copilot Sidebar">
+        <AiAgentPanel
+          bind:this={aiAgentRef}
+          {diagramType}
+          currentCode={code}
+          {errorMessage}
+          {errorLine}
+          {theme}
+          onApply={(newCode) => {
+            code = newCode;
+            queueRender(50);
+          }}
+          onOpenSettings={() => (isAiSettingsOpen = true)}
+          onClose={() => (aiPanelOpen = false)}
+        />
+      </aside>
+    {/if}
   </main>
 
   <!-- Modals -->
   <ExportModal
     isOpen={isExportModalOpen}
-    {svgContent}
+    svgContent={exportSvgContent}
     diagramName={currentFileName.replace(/\.[^/.]+$/, '')}
     {theme}
     onClose={() => (isExportModalOpen = false)}
@@ -332,6 +430,13 @@
     {theme}
     onSelect={handleSelectTemplate}
     onClose={() => (isTemplateModalOpen = false)}
+  />
+
+  <AiSettingsModal
+    isOpen={isAiSettingsOpen}
+    {theme}
+    onSettingsChanged={() => aiAgentRef?.refreshSettings?.()}
+    onClose={() => (isAiSettingsOpen = false)}
   />
 </div>
 
@@ -447,5 +552,14 @@
     overflow: hidden;
     display: flex;
     flex-direction: column;
+  }
+
+  /* AI Agent Panel Container */
+  .ai-agent-pane {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    flex-shrink: 0;
   }
 </style>

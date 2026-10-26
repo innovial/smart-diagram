@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { parseMermaidError } from '../src/lib/engines/mermaid';
 import { parseDbml, convertDbmlSchemaToMermaid } from '../src/lib/engines/dbml';
 import { TEMPLATES } from '../src/lib/engines/templates';
+import { prepareSvgForRaster } from '../src/lib/export';
 
 describe('Mermaid Engine Utilities', () => {
   it('extracts line numbers from Mermaid error strings', () => {
@@ -117,5 +118,26 @@ describe('Templates Library', () => {
         expect(parsed.success).toBe(true);
       }
     }
+  });
+});
+
+describe('Export Pipeline', () => {
+  it('prepareSvgForRaster converts percentage widths to numerical dimensions based on viewBox', () => {
+    const sampleMermaidSvg = `<svg id="mermaid-1" width="100%" style="max-width: 650px;" viewBox="0 0 650 480"><g><text>Flow</text></g></svg>`;
+    const prepared = prepareSvgForRaster(sampleMermaidSvg);
+    expect(prepared.width).toBe(650);
+    expect(prepared.height).toBe(480);
+    expect(prepared.svg).toContain('width="650"');
+    expect(prepared.svg).toContain('height="480"');
+    expect(prepared.svg).not.toContain('width="100%"');
+    expect(prepared.svg).toContain('xmlns="http://www.w3.org/2000/svg"');
+  });
+
+  it('prepareSvgForRaster handles SVGs missing xmlns', () => {
+    const rawSvg = `<svg width="400" height="300"><circle cx="200" cy="150" r="50"/></svg>`;
+    const prepared = prepareSvgForRaster(rawSvg);
+    expect(prepared.svg).toContain('xmlns="http://www.w3.org/2000/svg"');
+    expect(prepared.width).toBe(400);
+    expect(prepared.height).toBe(300);
   });
 });

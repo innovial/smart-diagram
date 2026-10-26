@@ -146,6 +146,7 @@
     background: transparent;
     border: none;
     cursor: default;
+    z-index: 1;
   }
 
   @keyframes fadeIn {
@@ -158,6 +159,8 @@
   }
 
   .modal-card {
+    position: relative;
+    z-index: 10;
     width: 100%;
     max-width: 580px;
     max-height: 80vh;

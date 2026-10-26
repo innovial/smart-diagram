@@ -11,7 +11,8 @@
     AlertCircle,
     Check,
     Copy,
-    Download
+    Download,
+    Sparkles
   } from '@lucide/svelte';
 
   interface Props {
@@ -22,6 +23,7 @@
     isRendering?: boolean;
     onExportSvg?: () => void;
     onExportPng?: () => void;
+    onFixWithAi?: () => void;
   }
 
   let {
@@ -31,7 +33,8 @@
     theme = 'dark',
     isRendering = false,
     onExportSvg,
-    onExportPng
+    onExportPng,
+    onFixWithAi
   }: Props = $props();
 
   let viewportEl: HTMLDivElement | null = $state(null);
@@ -50,15 +53,16 @@
     }
 
     panzoomInstance = Panzoom(canvasTargetEl, {
-      maxScale: 6,
-      minScale: 0.1,
-      contain: 'outside',
+      canvas: true,
+      maxScale: 10,
+      minScale: 0.05,
+      step: 0.2,
       cursor: 'grab'
     });
 
     const onWheel = (event: WheelEvent) => {
       if (!panzoomInstance) return;
-      panzoomInstance.zoomWithWheel(event);
+      panzoomInstance.zoomWithWheel(event, { step: 0.15 });
       updateZoomPercentage();
     };
 
@@ -101,16 +105,51 @@
     const svgEl = canvasTargetEl.querySelector('svg');
     if (!svgEl) return;
 
-    const vpWidth = viewportEl.clientWidth - 80;
-    const vpHeight = viewportEl.clientHeight - 80;
-    const svgBBox = svgEl.getBBox?.() || { width: 800, height: 600 };
-    const svgW = svgBBox.width > 0 ? svgBBox.width : 800;
-    const svgH = svgBBox.height > 0 ? svgBBox.height : 600;
+    const vpWidth = viewportEl.clientWidth;
+    const vpHeight = viewportEl.clientHeight;
+    if (vpWidth <= 0 || vpHeight <= 0) return;
 
-    const scale = Math.min(vpWidth / svgW, vpHeight / svgH, 1.5);
-    const safeScale = Math.max(0.2, scale);
+    const availWidth = vpWidth - 80;
+    const availHeight = vpHeight - 80;
 
-    panzoomInstance.zoom(safeScale, { animate: true });
+    let svgW = 0;
+    let svgH = 0;
+
+    // 1. Try viewBox attribute
+    const viewBoxAttr = svgEl.getAttribute('viewBox');
+    if (viewBoxAttr) {
+      const parts = viewBoxAttr.trim().split(/[\s,]+/).map(Number);
+      if (parts.length >= 4 && parts[2] > 0 && parts[3] > 0) {
+        svgW = parts[2];
+        svgH = parts[3];
+      }
+    }
+
+    // 2. Try getBBox
+    if (!svgW || !svgH) {
+      try {
+        const bbox = svgEl.getBBox();
+        if (bbox.width > 0 && bbox.height > 0) {
+          svgW = bbox.width;
+          svgH = bbox.height;
+        }
+      } catch {
+        // getBBox fallback handled below
+      }
+    }
+
+    // 3. Try client dimensions or fallback
+    if (!svgW || !svgH) {
+      svgW = svgEl.clientWidth || 800;
+      svgH = svgEl.clientHeight || 600;
+    }
+
+    const scaleX = availWidth / svgW;
+    const scaleY = availHeight / svgH;
+    const targetScale = Math.min(scaleX, scaleY, 1.2);
+    const finalScale = Math.max(0.05, targetScale);
+
+    panzoomInstance.zoom(finalScale, { animate: true });
     panzoomInstance.pan(0, 0, { animate: true });
     updateZoomPercentage();
   }
@@ -138,13 +177,14 @@
     initPanzoom();
   });
 
+  let lastSvg = '';
   $effect(() => {
-    // When svgContent updates, re-adjust or center if needed
-    if (svgContent && canvasTargetEl) {
-      // Small timeout to allow DOM parser to finish sizing
+    // When svgContent updates, auto-fit to show the entire diagram
+    if (svgContent && canvasTargetEl && svgContent !== lastSvg) {
+      lastSvg = svgContent;
       setTimeout(() => {
-        updateZoomPercentage();
-      }, 50);
+        fitToScreen();
+      }, 60);
     }
   });
 
@@ -203,8 +243,9 @@
       <button class="control-btn" onclick={resetZoom} title="Reset to 100%">
         <RotateCcw size={15} />
       </button>
-      <button class="control-btn" onclick={fitToScreen} title="Fit to Screen">
+      <button class="control-btn" onclick={fitToScreen} title="Fit to Screen (Show entire diagram)">
         <Maximize2 size={15} />
+        <span class="btn-label">Fit</span>
       </button>
     </div>
   </div>
@@ -237,6 +278,12 @@
             Syntax Error
           {/if}
         </span>
+        {#if onFixWithAi}
+          <button class="fix-ai-btn" onclick={onFixWithAi} title="Fix syntax error with AI">
+            <Sparkles size={12} />
+            <span>Fix with AI</span>
+          </button>
+        {/if}
       </div>
       <p class="error-body">{error}</p>
     </div>
@@ -322,8 +369,9 @@
   }
 
   :global(.svg-host svg) {
-    max-width: none !important;
-    height: auto !important;
+    display: block;
+    width: auto;
+    height: auto;
     filter: drop-shadow(0 4px 20px rgba(0, 0, 0, 0.15));
   }
 
@@ -479,6 +527,26 @@
     color: #fca5a5;
   }
 
+  .fix-ai-btn {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    border: 1px solid rgba(248, 113, 113, 0.4);
+    background: rgba(220, 38, 38, 0.3);
+    color: #fecaca;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+  }
+
+  .fix-ai-btn:hover {
+    background: rgba(220, 38, 38, 0.5);
+    color: #ffffff;
+  }
   .error-body {
     margin: 0;
     font-size: 12px;

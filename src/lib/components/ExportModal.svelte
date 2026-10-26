@@ -1,6 +1,6 @@
 <script lang="ts">
   import { svgToPngBlob, downloadBlob, downloadText, copyPngToClipboard } from '$lib/export';
-  import { X, Download, Copy, Check, Image as ImageIcon, FileCode } from '@lucide/svelte';
+  import { X, Download, Copy, Check, Image as ImageIcon, FileCode, AlertCircle } from '@lucide/svelte';
 
   interface Props {
     isOpen: boolean;
@@ -23,7 +23,8 @@
   let isExporting = $state(false);
   let copyPngStatus = $state(false);
   let copySvgStatus = $state(false);
-
+  let exportErrorMessage = $state('');
+  let exportSuccessMessage = $state('');
   const backgroundColors = {
     transparent: 'transparent',
     dark: '#0f172a',
@@ -33,15 +34,21 @@
   async function handleExportPng() {
     if (!svgContent || isExporting) return;
     isExporting = true;
+    exportErrorMessage = '';
+    exportSuccessMessage = '';
     try {
       const blob = await svgToPngBlob(svgContent, {
         scale,
         backgroundColor: backgroundColors[backgroundMode]
       });
       downloadBlob(blob, `${diagramName}.png`);
-      onClose();
-    } catch (e) {
-      console.error('Export PNG failed:', e);
+      exportSuccessMessage = `Downloaded ${diagramName}.png!`;
+      setTimeout(() => {
+        onClose();
+        exportSuccessMessage = '';
+      }, 1200);
+    } catch (e: unknown) {
+      exportErrorMessage = e instanceof Error ? e.message : String(e);
     } finally {
       isExporting = false;
     }
@@ -49,13 +56,23 @@
 
   function handleExportSvg() {
     if (!svgContent) return;
-    downloadText(svgContent, `${diagramName}.svg`, 'image/svg+xml');
-    onClose();
+    exportErrorMessage = '';
+    try {
+      downloadText(svgContent, `${diagramName}.svg`, 'image/svg+xml');
+      exportSuccessMessage = `Downloaded ${diagramName}.svg!`;
+      setTimeout(() => {
+        onClose();
+        exportSuccessMessage = '';
+      }, 1000);
+    } catch (e: unknown) {
+      exportErrorMessage = e instanceof Error ? e.message : String(e);
+    }
   }
 
   async function handleCopyPng() {
     if (!svgContent || isExporting) return;
     isExporting = true;
+    exportErrorMessage = '';
     try {
       const ok = await copyPngToClipboard(svgContent, {
         scale,
@@ -64,9 +81,11 @@
       if (ok) {
         copyPngStatus = true;
         setTimeout(() => (copyPngStatus = false), 2000);
+      } else {
+        exportErrorMessage = 'System clipboard write permission was denied. Try "Download PNG" instead.';
       }
-    } catch (e) {
-      console.error('Copy PNG failed:', e);
+    } catch (e: unknown) {
+      exportErrorMessage = e instanceof Error ? e.message : String(e);
     } finally {
       isExporting = false;
     }
@@ -74,12 +93,13 @@
 
   async function handleCopySvg() {
     if (!svgContent) return;
+    exportErrorMessage = '';
     try {
       await navigator.clipboard.writeText(svgContent);
       copySvgStatus = true;
       setTimeout(() => (copySvgStatus = false), 2000);
-    } catch (e) {
-      console.error('Copy SVG failed:', e);
+    } catch (e: unknown) {
+      exportErrorMessage = e instanceof Error ? e.message : String(e);
     }
   }
 </script>
@@ -158,9 +178,27 @@
           </div>
         </div>
 
+        <!-- Feedback Banners -->
+        {#if !svgContent}
+          <div class="feedback-banner warning">
+            <AlertCircle size={15} />
+            <span>No diagram rendered to export. Ensure syntax is valid.</span>
+          </div>
+        {:else if exportErrorMessage}
+          <div class="feedback-banner error">
+            <AlertCircle size={15} />
+            <span>{exportErrorMessage}</span>
+          </div>
+        {:else if exportSuccessMessage}
+          <div class="feedback-banner success">
+            <Check size={15} />
+            <span>{exportSuccessMessage}</span>
+          </div>
+        {/if}
+
         <!-- Action Grid -->
         <div class="actions-grid">
-          <button class="action-card primary" onclick={handleExportPng} disabled={isExporting}>
+          <button class="action-card primary" onclick={handleExportPng} disabled={!svgContent || isExporting}>
             <ImageIcon size={20} />
             <div class="action-info">
               <span class="action-title">Download PNG</span>
@@ -169,7 +207,7 @@
             <Download size={16} class="action-end" />
           </button>
 
-          <button class="action-card" onclick={handleExportSvg}>
+          <button class="action-card" onclick={handleExportSvg} disabled={!svgContent}>
             <FileCode size={20} />
             <div class="action-info">
               <span class="action-title">Download SVG</span>
@@ -178,7 +216,7 @@
             <Download size={16} class="action-end" />
           </button>
 
-          <button class="action-card" onclick={handleCopyPng} disabled={isExporting}>
+          <button class="action-card" onclick={handleCopyPng} disabled={!svgContent || isExporting}>
             {#if copyPngStatus}
               <Check size={20} color="#10b981" />
             {:else}
@@ -192,7 +230,7 @@
             </div>
           </button>
 
-          <button class="action-card" onclick={handleCopySvg}>
+          <button class="action-card" onclick={handleCopySvg} disabled={!svgContent}>
             {#if copySvgStatus}
               <Check size={20} color="#10b981" />
             {:else}
@@ -233,6 +271,7 @@
     background: transparent;
     border: none;
     cursor: default;
+    z-index: 1;
   }
 
   @keyframes fadeIn {
@@ -245,6 +284,8 @@
   }
 
   .modal-card {
+    position: relative;
+    z-index: 10;
     width: 100%;
     max-width: 480px;
     border-radius: 12px;
@@ -412,5 +453,33 @@
 
   .action-end {
     color: #94a3b8;
+  }
+
+  .feedback-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 500;
+  }
+
+  .feedback-banner.warning {
+    background: rgba(234, 179, 8, 0.15);
+    border: 1px solid rgba(234, 179, 8, 0.3);
+    color: #fef08a;
+  }
+
+  .feedback-banner.error {
+    background: rgba(239, 68, 68, 0.15);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    color: #fca5a5;
+  }
+
+  .feedback-banner.success {
+    background: rgba(16, 185, 129, 0.15);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    color: #6ee7b7;
   }
 </style>

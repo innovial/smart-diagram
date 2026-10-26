@@ -13,18 +13,20 @@
     Database,
     GitBranch,
     Table,
-    Layers
+    Layers,
+    Sparkles
   } from '@lucide/svelte';
 
   interface Props {
     diagramType: DiagramType;
-    viewMode: 'diagram' | 'inspector';
+    viewMode: 'interactive' | 'mermaid-er' | 'inspector';
     theme: 'dark' | 'light';
     editorOpen: boolean;
+    aiPanelOpen: boolean;
     hasErrors: boolean;
     isRendering: boolean;
     onChangeType: (type: DiagramType) => void;
-    onChangeViewMode: (mode: 'diagram' | 'inspector') => void;
+    onChangeViewMode: (mode: 'interactive' | 'mermaid-er' | 'inspector') => void;
     onToggleTheme: () => void;
     onToggleEditor: () => void;
     onNew: () => void;
@@ -32,6 +34,7 @@
     onSave: () => void;
     onOpenTemplates: () => void;
     onOpenExport: () => void;
+    onOpenAi: () => void;
   }
 
   let {
@@ -39,6 +42,7 @@
     viewMode,
     theme,
     editorOpen,
+    aiPanelOpen,
     hasErrors,
     isRendering,
     onChangeType,
@@ -49,7 +53,8 @@
     onOpen,
     onSave,
     onOpenTemplates,
-    onOpenExport
+    onOpenExport,
+    onOpenAi
   }: Props = $props();
 </script>
 
@@ -96,12 +101,21 @@
       <div class="segmented-control sub-view-selector">
         <button
           class="segment-btn"
-          class:active={viewMode === 'diagram'}
-          onclick={() => onChangeViewMode('diagram')}
-          title="Interactive ER Visual Diagram"
+          class:active={viewMode === 'interactive'}
+          onclick={() => onChangeViewMode('interactive')}
+          title="Dedicated Interactive ER Canvas (Draggable tables & field-to-field lines)"
         >
           <Layers size={13} />
-          <span>ER View</span>
+          <span>Interactive ER</span>
+        </button>
+        <button
+          class="segment-btn"
+          class:active={viewMode === 'mermaid-er'}
+          onclick={() => onChangeViewMode('mermaid-er')}
+          title="Render as Mermaid ER Diagram"
+        >
+          <GitBranch size={13} />
+          <span>Mermaid ER</span>
         </button>
         <button
           class="segment-btn"
@@ -134,6 +148,15 @@
     <button class="tool-btn highlight" onclick={onOpenTemplates} title="Browse Sample Templates">
       <LayoutTemplate size={15} />
       <span class="btn-text">Templates</span>
+    </button>
+    <button
+      class="tool-btn ai-btn"
+      class:active={aiPanelOpen}
+      onclick={onOpenAi}
+      title="AI Diagram Copilot (Ctrl+K)"
+    >
+      <Sparkles size={14} class="ai-sparkle-icon" />
+      <span class="btn-text">AI Agent</span>
     </button>
   </div>
 
@@ -310,7 +333,31 @@
   .tool-btn.highlight {
     color: #38bdf8;
   }
+  .tool-btn.highlight {
+    color: #38bdf8;
+  }
 
+  .tool-btn.ai-btn {
+    color: #c084fc;
+    background: rgba(192, 132, 252, 0.1);
+    border: 1px solid rgba(192, 132, 252, 0.2);
+  }
+
+  .tool-btn.ai-btn:hover {
+    background: rgba(192, 132, 252, 0.2);
+    color: #d8b4fe;
+  }
+
+  .tool-btn.ai-btn.active {
+    background: #9333ea;
+    border-color: #9333ea;
+    color: #ffffff;
+    opacity: 1;
+  }
+
+  .tool-btn.ai-btn.active :global(.ai-sparkle-icon) {
+    color: #ffffff;
+  }
   .tool-btn.icon-only {
     padding: 6px;
   }
